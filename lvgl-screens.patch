@@ -1,0 +1,112 @@
+diff --git a/components/seedsigner/camera_preview_overlay.cpp b/components/seedsigner/camera_preview_overlay.cpp
+index fea707c..405e208 100644
+--- a/components/seedsigner/camera_preview_overlay.cpp
++++ b/components/seedsigner/camera_preview_overlay.cpp
+@@ -495,6 +495,7 @@ void camera_preview_overlay_set_progress(camera_preview_overlay_t *o,
+                                          camera_overlay_frame_status_t frame_status) {
+     if (!o) return;
+ 
++    if (percent <= 0) { camera_preview_overlay_set_scanning(o, false); return; }
+     // A progress event implies we are scanning.
+     camera_preview_overlay_set_scanning(o, true);
+ 
+diff --git a/components/seedsigner/gui_constants.cpp b/components/seedsigner/gui_constants.cpp
+index 5c54fab..a59f429 100644
+--- a/components/seedsigner/gui_constants.cpp
++++ b/components/seedsigner/gui_constants.cpp
+@@ -97,7 +97,8 @@ static DisplayProfile make_profile(int width, int height) {
+     switch (height) {
+         case 240: px_mult = PX_MULTIPLIER_100; break;
+         case 320: px_mult = PX_MULTIPLIER_133; break;
+-        case 480: px_mult = PX_MULTIPLIER_200; break;
++        case 480:
++        case 800: px_mult = PX_MULTIPLIER_200; break;
+         default:
+             fprintf(stderr, "FATAL: no PX_MULTIPLIER for height=%d\n", height);
+             abort();
+@@ -157,6 +158,7 @@ static DisplayProfile profile_480x320 = make_profile(480, 320);
+ 
+ #ifdef SUPPORT_DISPLAY_HEIGHT_480
+ static DisplayProfile profile_800x480 = make_profile(800, 480);
++static DisplayProfile profile_480x800 = make_profile(480, 800);
+ #endif
+ 
+ // ---------------------------------------------------------------------------
+@@ -178,6 +180,7 @@ static const ProfileEntry profile_table[] = {
+ #endif
+ #ifdef SUPPORT_DISPLAY_HEIGHT_480
+     {800, 480, &profile_800x480},
++    {480, 800, &profile_480x800},
+ #endif
+ };
+ 
+diff --git a/components/seedsigner/screens/qr_display_screen.cpp b/components/seedsigner/screens/qr_display_screen.cpp
+index 38b0349..899dfb4 100644
+--- a/components/seedsigner/screens/qr_display_screen.cpp
++++ b/components/seedsigner/screens/qr_display_screen.cpp
+@@ -983,9 +983,6 @@ void qr_display_screen(void *ctx_json) {
+     if (show_tips) {
+         if (cfg.value("tips_visible", false)) {
+             qr_display_show_toast(ctx, 0);
+-        } else if (!seedsigner_lvgl_is_static_render()) {
+-            qr_display_show_toast(ctx, ctx->input_mode == INPUT_MODE_HARDWARE
+-                                           ? QR_DISPLAY_TOAST_MS_HARDWARE : QR_DISPLAY_TOAST_MS_TOUCH);
+         }
+     }
+ 
+diff --git a/components/seedsigner/screens/seed_mnemonic_entry_screen.cpp b/components/seedsigner/screens/seed_mnemonic_entry_screen.cpp
+index a7c646d..3259111 100644
+--- a/components/seedsigner/screens/seed_mnemonic_entry_screen.cpp
++++ b/components/seedsigner/screens/seed_mnemonic_entry_screen.cpp
+@@ -508,13 +508,8 @@ void seed_mnemonic_entry_touch_candidate_cb(lv_event_t *e) {
+     seed_mnemonic_entry_ctx_t *ctx = (seed_mnemonic_entry_ctx_t *)lv_event_get_user_data(e);
+     if (!ctx || !ctx->candidate_list) return;
+     int tapped_index = (int)(intptr_t)lv_obj_get_user_data(button);
+-    ctx->touch_selected = tapped_index;
+-    uint32_t child_count = lv_obj_get_child_count(ctx->candidate_list);
+-    for (uint32_t i = 0; i < child_count; ++i) {
+-        lv_obj_t *child = lv_obj_get_child(ctx->candidate_list, i);
+-        seed_mnemonic_entry_style_candidate(child, (int)i == tapped_index);
+-    }
+-    seed_mnemonic_entry_set_check_enabled(ctx, true);
++    if (tapped_index < 0 || tapped_index >= (int)ctx->possible_words.size()) return;
++    seed_mnemonic_entry_accept_word(ctx, ctx->possible_words[tapped_index]);
+ }
+ 
+ // Touch: tap CHECK to accept the highlighted candidate.
+@@ -787,11 +782,10 @@ void seed_mnemonic_entry_screen(void *ctx_json) {
+                                          SeedSignerIconConstants::CHEVRON_DOWN, &ICON_FONT__SEEDSIGNER,
+                                          BODY_FONT_COLOR, side_panel.clipped, /*out_label=*/nullptr);
+     } else {
+-        // Touch: a scrollable candidate list above a persistent green CHECK button.
+-        const int32_t check_height = highlight_height;
++        // Touch: full-height scrollable candidate list; tapping a word accepts immediately.
+         lv_obj_t *list = lv_obj_create(body);
+         lv_obj_set_pos(list, matches_x, 0);
+-        lv_obj_set_size(list, matches_column_width, content_height - check_height - COMPONENT_PADDING);
++        lv_obj_set_size(list, matches_column_width, content_height);
+         lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, LV_PART_MAIN);
+         lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
+         lv_obj_set_style_pad_all(list, 0, LV_PART_MAIN);
+@@ -800,21 +794,6 @@ void seed_mnemonic_entry_screen(void *ctx_json) {
+         lv_obj_set_scroll_dir(list, LV_DIR_VER);
+         lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+         ctx->candidate_list = list;
+-
+-        lv_obj_t *check_button = lv_obj_create(body);
+-        lv_obj_set_size(check_button, matches_column_width, check_height);
+-        lv_obj_set_pos(check_button, matches_x, content_height - check_height);
+-        lv_obj_set_style_radius(check_button, BUTTON_RADIUS / 2, LV_PART_MAIN);
+-        lv_obj_set_style_border_width(check_button, 0, LV_PART_MAIN);
+-        lv_obj_set_style_pad_all(check_button, 0, LV_PART_MAIN);
+-        lv_obj_remove_flag(check_button, LV_OBJ_FLAG_SCROLLABLE);
+-        lv_obj_t *check_label = lv_label_create(check_button);
+-        lv_label_set_text(check_label, SeedSignerIconConstants::CHECK);
+-        lv_obj_set_style_text_font(check_label, &ICON_FONT__SEEDSIGNER, LV_PART_MAIN);
+-        lv_obj_center(check_label);
+-        lv_obj_add_event_cb(check_button, seed_mnemonic_entry_check_cb, LV_EVENT_CLICKED, ctx);
+-        ctx->check_button = check_button;
+-        seed_mnemonic_entry_set_check_enabled(ctx, false);
+     }
+ 
+     // 6. Initial view sync: dimming + the in-progress word + the candidate matches.

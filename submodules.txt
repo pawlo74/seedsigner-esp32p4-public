@@ -1,0 +1,7 @@
+ 0ed276bc10b70556925bb42f85149d7c837a6c51 deps/cUR (heads/main)
+ 691cee340bc47b6b831d911991694a559bca13b9 deps/embit (v0.8.0-1-g691cee3)
+ 6eda9b6a8ddb2160731ebdec7800f5a488830873 deps/esp-secp256k1 (heads/main)
+ 78ff170de9e32c79db6e64d3e33d2bd60002bdcd deps/micropython/upstream (v1.27.0)
+ fd9ba8fc766f715668bc37fbb5485499def9e52f deps/seedsigner (0.8.6-489-gfd9ba8fc)
+ ec4ef60d6b1ca68bd5b0e181b417fad978a62891 deps/seedsigner-lvgl-screens (ec4ef60)
+ a0c231d399aa987fa06f4b4d909daec7681b4132 ports/esp32/board_common (a0c231d)

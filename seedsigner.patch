@@ -1,0 +1,257 @@
+diff --git a/src/seedsigner/gui/lvgl_screen_runner.py b/src/seedsigner/gui/lvgl_screen_runner.py
+index e4d2c43a..b95f219b 100644
+--- a/src/seedsigner/gui/lvgl_screen_runner.py
++++ b/src/seedsigner/gui/lvgl_screen_runner.py
+@@ -717,6 +717,11 @@ def run_camera_scan(decoder, *, instructions_text=None):
+     ensure_lvgl_runtime()
+     import camera_scanner
+     from seedsigner.hardware.scan_consumer import run_scan
++    from seedsigner.security.session_idle import arm, set_paused
++
++    # A scanned SeedQR or mnemonic can become secret before it reaches storage.
++    # Arm before scanning, and pause only while the camera session is active.
++    arm()
+ 
+     # The camera preview isn't LVGL "input activity", so the native idle screensaver
+     # would otherwise fire over it. Suspend it for the scan's duration by zeroing the
+@@ -733,6 +738,7 @@ def run_camera_scan(decoder, *, instructions_text=None):
+     # camera_entropy twin). Once the native screen owns it, drop this override and the
+     # outer try/finally that exists only to restore the timeout.
+     _lv.set_screensaver_timeout(0)
++    set_paused(True)
+     try:
+         try:
+             camera_scanner.start(instructions_text=instructions_text)
+@@ -755,6 +761,7 @@ def run_camera_scan(decoder, *, instructions_text=None):
+         finally:
+             camera_scanner.stop()
+     finally:
++        set_paused(False)
+         _lv.set_screensaver_timeout(_screensaver_timeout_ms)
+ 
+ 
+@@ -821,6 +828,7 @@ def run_qr_display_screen(encoder, *, allow_screensaver=False):
+         "allow_screensaver": allow_screensaver,
+     }
+     is_animated = encoder.seq_len() > 1
++    from seedsigner.security.session_idle import set_paused
+ 
+     # The density slider is only meaningful for a fountain encoder whose fragment size the host
+     # can vary (the animated PSBT / wallet-export flow); a fixed QR (SeedQR, xpub, address, ...)
+@@ -844,6 +852,8 @@ def run_qr_display_screen(encoder, *, allow_screensaver=False):
+     # after a display longer than the timeout the next screen may screensave immediately.
+     if not allow_screensaver:
+         _lv.set_screensaver_timeout(0)
++    if is_animated:
++        set_paused(True)
+     try:
+         _lv.clear_result_queue()
+         _lv.qr_display_screen(cfg)
+@@ -881,6 +891,8 @@ def run_qr_display_screen(encoder, *, allow_screensaver=False):
+             # ~6 fps, matching the PIL QRDisplayThread cadence.
+             _sleep_ms(166)
+     finally:
++        if is_animated:
++            set_paused(False)
+         if not allow_screensaver:
+             _lv.set_screensaver_timeout(_screensaver_timeout_ms)
+ 
+@@ -917,6 +929,8 @@ def run_camera_entropy(*, seed_hash=None):
+     ensure_lvgl_runtime()
+     import camera_entropy
+     from seedsigner.compat.l10n import gettext as _
++    from seedsigner.security.session_idle import arm, set_paused
++    arm()
+ 
+     def _tick(ms):
+         """One idle iteration of a poll loop: the native pump task advances LVGL and
+@@ -928,6 +942,7 @@ def run_camera_entropy(*, seed_hash=None):
+     # TODO (same as run_camera_scan): move this into the native camera_entropy overlay via
+     # SS_OBJ_FLAG_NO_SCREENSAVER, then drop the override and the outer try/finally that restores it.
+     _lv.set_screensaver_timeout(0)
++    set_paused(True)
+     try:
+         # The native overlay holds no strings; hand it every label already translated. Nothing
+         # is hardcoded in firmware, so these must be set before the camera starts or the
+@@ -1018,6 +1033,7 @@ def run_camera_entropy(*, seed_hash=None):
+         finally:
+             camera_entropy.stop()
+     finally:
++        set_paused(False)
+         _lv.set_screensaver_timeout(_screensaver_timeout_ms)
+ 
+ 
+diff --git a/src/seedsigner/models/decode_qr.py b/src/seedsigner/models/decode_qr.py
+index 552bdd9c..991c8b99 100644
+--- a/src/seedsigner/models/decode_qr.py
++++ b/src/seedsigner/models/decode_qr.py
+@@ -1093,9 +1093,10 @@ class BitcoinAddressQrDecoder(BaseSingleFrameQrDecoder):
+             length-bounded in Python. The original `{25,64}` greedily capped the
+             body at 64 chars, and the match is intentionally NOT end-anchored (so
+             trailing `?amount=`-style query params are ignored), so the captured
+-            body is sliced to 64 chars to reproduce that cap exactly.
++            body is sliced to 64 chars to reproduce that cap exactly. Grouping
++            Q/P together also keeps the pattern within MicroPython's regex limit.
+         """
+-        address_match = re.search(r'^([Bb][Cc]1[Qq]|[Tt][Bb]1[Qq]|[Bb][Cc][Rr][Tt]1[Qq]|[Bb][Cc]1[Pp]|[Tt][Bb]1[Pp]|[Bb][Cc][Rr][Tt]1[Pp]|[123]|[MmNn])([A-Za-z0-9]+)', segment.split(":")[-1])
++        address_match = re.search(r'^([Bb][Cc]1[QqPp]|[Tt][Bb]1[QqPp]|[Bb][Cc][Rr][Tt]1[QqPp]|[123]|[MmNn])([A-Za-z0-9]+)', segment.split(":")[-1])
+         if address_match != None and len(address_match.group(2)) >= 25:
+             addr_prefix_raw = address_match.group(1)
+             self.address = addr_prefix_raw + address_match.group(2)[:64]
+diff --git a/src/seedsigner/models/seed.py b/src/seedsigner/models/seed.py
+index f26c55a5..6789d8c9 100644
+--- a/src/seedsigner/models/seed.py
++++ b/src/seedsigner/models/seed.py
+@@ -42,6 +42,8 @@ class Seed:
+ 
+         if not mnemonic:
+             raise Exception("Must initialize a Seed with a mnemonic List[str]")
++        from seedsigner.security.session_idle import arm
++        arm()
+         mnemonic_str = " ".join(mnemonic).strip()
+         _require_ascii(mnemonic_str, "Mnemonic")
+         self._mnemonic: list[str] = mnemonic_str.split()
+diff --git a/src/seedsigner/models/seed_storage.py b/src/seedsigner/models/seed_storage.py
+index c0b5cb95..05060267 100644
+--- a/src/seedsigner/models/seed_storage.py
++++ b/src/seedsigner/models/seed_storage.py
+@@ -1,5 +1,6 @@
+ from seedsigner.models.seed import Seed, ElectrumSeed, InvalidSeedException
+ from seedsigner.models.settings_definition import SettingsConstants
++from seedsigner.security.session_idle import arm as arm_session_idle
+ 
+ 
+ 
+@@ -12,6 +13,7 @@ class SeedStorage:
+ 
+ 
+     def set_pending_seed(self, seed: Seed):
++        arm_session_idle()
+         self.pending_seed = seed
+ 
+ 
+@@ -57,6 +59,7 @@ class SeedStorage:
+ 
+ 
+     def init_pending_mnemonic(self, num_words:int = 12, is_electrum:bool = False):
++        arm_session_idle()
+         self._pending_mnemonic = [None] * num_words
+         self._pending_is_electrum = is_electrum
+ 
+diff --git a/src/seedsigner/models/settings.py b/src/seedsigner/models/settings.py
+index 0a68688c..cd49beb3 100644
+--- a/src/seedsigner/models/settings.py
++++ b/src/seedsigner/models/settings.py
+@@ -238,6 +238,13 @@ class Settings(Singleton):
+             print(f"Setting {attr_name} not recognized. Ignoring.")
+             return
+ 
++        # Only the explicitly supported zero value disables the timer; corrupt
++        # values fall back to 30 minutes. Old settings files acquire the default.
++        if attr_name == SettingsConstants.SETTING__SEED_IDLE_TIMEOUT:
++            valid = [option[0] for option in SettingsConstants.ALL_SEED_IDLE_TIMEOUTS]
++            if type(value) is not int or value not in valid:
++                value = SettingsConstants.SEED_IDLE_TIMEOUT__DEFAULT
++
+         if SettingsDefinition.get_settings_entry(attr_name).type == SettingsConstants.TYPE__MULTISELECT:
+             if type(value) != list:
+                 raise Exception(f"value must be a List for {attr_name}")
+@@ -251,6 +258,10 @@ class Settings(Singleton):
+                 logger.info(f"{self.SETTINGS_FILENAME} not found to be removed")
+                 
+         self._data[attr_name] = value
++        # Push the security deadline before potentially slow SD writes.
++        if attr_name == SettingsConstants.SETTING__SEED_IDLE_TIMEOUT and IS_MICROPYTHON:
++            from seedsigner.security.session_idle import set_timeout
++            set_timeout(value)
+         self.save()
+ 
+         # Special handling for localization
+diff --git a/src/seedsigner/models/settings_definition.py b/src/seedsigner/models/settings_definition.py
+index b791f1e2..645642d2 100644
+--- a/src/seedsigner/models/settings_definition.py
++++ b/src/seedsigner/models/settings_definition.py
+@@ -474,6 +474,18 @@ class SettingsConstants:
+     SETTING__QR_BRIGHTNESS_TIPS = "qr_brightness_tips"
+     SETTING__PARTNER_LOGOS = "partner_logos"
+     SETTING__MICROSD_TOAST_TIMER = "microsd_toast_timer"
++    SETTING__SEED_IDLE_TIMEOUT = "seed_idle_timeout"
++
++    # Seconds; zero explicitly disables the idle restart. Default remains 30 min.
++    SEED_IDLE_TIMEOUT__DEFAULT = 1800
++    SEED_IDLE_TIMEOUT__NO_LIMIT = 0
++    ALL_SEED_IDLE_TIMEOUTS = [
++        (300, _mft("5 minutes")),
++        (900, _mft("15 minutes")),
++        (1800, _mft("30 minutes")),
++        (3600, _mft("1 hour")),
++        (SEED_IDLE_TIMEOUT__NO_LIMIT, _mft("No limit")),
++    ]
+ 
+     SETTING__DEBUG = "debug"
+ 
+@@ -715,6 +727,14 @@ class SettingsDefinition:
+      
+ 
+         # Advanced options
++        SettingsEntry(category=SettingsConstants.CATEGORY__SYSTEM,
++                      attr_name=SettingsConstants.SETTING__SEED_IDLE_TIMEOUT,
++                      display_name=_mft("Seed session timeout"),
++                      type=SettingsConstants.TYPE__SELECT_1,
++                      visibility=SettingsConstants.VISIBILITY__ADVANCED,
++                      selection_options=SettingsConstants.ALL_SEED_IDLE_TIMEOUTS,
++                      default_value=SettingsConstants.SEED_IDLE_TIMEOUT__DEFAULT),
++
+         SettingsEntry(category=SettingsConstants.CATEGORY__FEATURES,
+                       attr_name=SettingsConstants.SETTING__NETWORK,
+                       display_name=_mft("Bitcoin network"),
+diff --git a/src/seedsigner/views/seed_views.py b/src/seedsigner/views/seed_views.py
+index 4a5b2d74..9e474be3 100644
+--- a/src/seedsigner/views/seed_views.py
++++ b/src/seedsigner/views/seed_views.py
+@@ -2054,14 +2054,16 @@ class SeedAddressVerificationView(View):
+                     change_address = embit_utils.get_single_sig_address(xpub=self.xpub, script_type=self.script_type, index=i, is_change=True, embit_network=self.embit_network)
+                     
+                 if self.address == receive_address:
+-                    self.verified_index.set_value(i)
++                    # Publish the branch before the index: the screen treats a
++                    # non-None index as the signal that the full result is ready.
+                     self.verified_index_is_change.set_value(0)
++                    self.verified_index.set_value(i)
+                     self.keep_running = False
+                     break
+ 
+                 elif self.address == change_address:
+-                    self.verified_index.set_value(i)
+                     self.verified_index_is_change.set_value(1)
++                    self.verified_index.set_value(i)
+                     self.keep_running = False
+                     break
+ 
+diff --git a/src/seedsigner/views/settings_views.py b/src/seedsigner/views/settings_views.py
+index 86ce9b0d..04ec9fbc 100644
+--- a/src/seedsigner/views/settings_views.py
++++ b/src/seedsigner/views/settings_views.py
+@@ -22,7 +22,7 @@ def _is_disabled_on_this_hardware(attr_name: str) -> bool:
+     return IS_MICROPYTHON and attr_name in (
+         SettingsConstants.SETTING__CAMERA_ROTATION,
+         SettingsConstants.SETTING__DISPLAY_RESOLUTION,
+-    )
++    ) or (not IS_MICROPYTHON and attr_name == SettingsConstants.SETTING__SEED_IDLE_TIMEOUT)
+ 
+ 
+ 
+diff --git a/src/seedsigner/views/tools_views.py b/src/seedsigner/views/tools_views.py
+index 09a017f6..b9af9fc6 100644
+--- a/src/seedsigner/views/tools_views.py
++++ b/src/seedsigner/views/tools_views.py
+@@ -249,6 +249,9 @@ class ToolsDiceEntropyEntryView(View):
+ 
+     def run(self):
+         from seedsigner.views.seed_views import SeedWordsWarningView
++        from seedsigner.security.session_idle import arm
++        # Dice input is seed-generating secret material even before Seed exists.
++        arm()
+ 
+         # Native keyboard_screen, digit keys 1-6. (The PIL screen showed FontAwesome dice-face
+         # glyphs; those codepoints aren't in the native keyboard icon font — verified on-device,
