@@ -1,14 +1,14 @@
-PODSUMOWANIE KOPII — SEEDSIGNER ESP32-P4
+BACKUP SUMMARY - SEEDSIGNER ESP32-P4
 
-Publiczna kopia firmware’u dla Waveshare ESP32-P4 4.3 PRE_REV3, w orientacji
-pionowej. Właściciel potwierdził, że urządzenie działa. Nie oznacza to pełnego
-przetestowania wszystkich funkcji ani bezpieczeństwa pamięci.
+Public snapshot of custom portrait firmware for the Waveshare ESP32-P4 4.3
+PRE_REV3. The owner reported that the device works. This does not mean that all
+features or memory security have been comprehensively tested.
 
-Zawartość: firmware, bootloader, tablica partycji, flash_args, patche zmian,
-nowe pliki źródłowe i testy. Szczegóły, instrukcje odtworzenia oraz ograniczenia
-bezpieczeństwa znajdują się w README.md. Sumy kontrolne: SHA256SUMS.
+Contents: firmware, bootloader, partition table, flash_args, patches, added source
+files and tests. See README.md for details, restoration instructions and security
+limitations. Checksums are in SHA256SUMS.
 
-PODSUMOWANIE
-Publiczne repozytorium: https://github.com/pawlo74/seedsigner-esp32p4-public
-Wcześniejsze kopie na Pulpicie Windows i w My Drive pozostają bez zmian.
-Kopia nie zawiera danych systemu plików urządzenia, karty SD ani seedów.
+SUMMARY
+Public repository: https://github.com/pawlo74/seedsigner-esp32p4-Waveshare-ESP32-P4
+Previous Windows Desktop and My Drive backups remain unchanged.
+The snapshot does not include device filesystem data, SD card contents or seeds.

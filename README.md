@@ -1,7 +1,7 @@
-# SeedSigner ESP32-P4 firmware — personal snapshot
+# SeedSigner ESP32-P4 firmware - personal snapshot
 
 Public snapshot of a custom firmware for the Waveshare ESP32-P4 WIFI6 Touch LCD
-4.3, chip revisions **v0.0–v1.99** (`PRE_REV3`). The device used to test this
+4.3, chip revisions **v0.0-v1.99** (`PRE_REV3`). The device used to test this
 image reported revision v1.3. Do not flash this image to revision v3.x.
 
 This is a personal, modified build, not an official SeedSigner release. The
@@ -16,22 +16,22 @@ tested. The source and binary require review before use with real funds.
 - `builder.patch`, `seedsigner.patch`, `lvgl-screens.patch`: tracked changes
   against the respective upstream commits recorded in `builder-commit.txt` and
   `submodules.txt`.
-- `nowe-pliki/`: added source, documentation and tests, which are untracked in
+- `new-files/`: added source, documentation and tests, which are untracked in
   the original repositories and therefore **not included in the patches**.
 - `seedsigner_frozen_build.py`: build provenance. `SHA256SUMS` covers all files
   in this snapshot except itself.
 
 Included changes comprise portrait orientation, UI changes, address QR parsing,
 address verification coordination, and an ESP32 idle session timeout with
-5/15/30 minutes, 1 hour and “No limit” (default: 30 minutes).
+5/15/30 minutes, 1 hour and "No limit" (default: 30 minutes).
 
 ## Security and data limitations
 
 The timeout restarts the device after inactivity. Restarting does **not** prove
-that every physical copy of a seed has been overwritten. “No limit” disables
+that every physical copy of a seed has been overwritten. "No limit" disables
 this automatic restart. Camera scanning and animated QR display pause the
 timeout; leaving either open can delay it indefinitely. See
-`nowe-pliki/builder/docs/seed-session-idle-timeout.md`.
+`new-files/builder/docs/seed-session-idle-timeout.md`.
 
 No seed backup, microSD content, internal filesystem image or `vfs.bin` is
 included. Do not upload seed phrases, passphrases, private keys, device flash
@@ -57,8 +57,8 @@ git -C deps/seedsigner-lvgl-screens apply --check "$SNAPSHOT/lvgl-screens.patch"
 git apply "$SNAPSHOT/builder.patch"
 git -C deps/seedsigner apply "$SNAPSHOT/seedsigner.patch"
 git -C deps/seedsigner-lvgl-screens apply "$SNAPSHOT/lvgl-screens.patch"
-cp -a "$SNAPSHOT/nowe-pliki/builder/." .
-cp -a "$SNAPSHOT/nowe-pliki/seedsigner/." deps/seedsigner/
+cp -a "$SNAPSHOT/new-files/builder/." .
+cp -a "$SNAPSHOT/new-files/seedsigner/." deps/seedsigner/
 SS_APP_DIR="$PWD/deps/seedsigner" SS_EMBIT_DIR="$PWD/deps/embit" make docker-build-all BOARD=WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_43 BOARD_VARIANT=PRE_REV3
 ```
 
